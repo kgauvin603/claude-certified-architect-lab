@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "architect-lab": {
+      "command": "python",
+      "args": ["-m", "src.mcp_server.server"],
+      "cwd": "."
+    }
+  }
+}
