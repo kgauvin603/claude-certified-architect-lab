@@ -20,3 +20,10 @@ Workflow rules:
 - After editing Python files, run unit tests.
 - For extraction prompts, keep prompt and schema aligned.
 - For ambiguous user intent, either disambiguate or choose the dedicated search tool.
+
+Agent runtime:
+- The primary runtime is the Python Agent SDK (`claude_agent_sdk`), not the plain Messages API.
+- Use `ClaudeSDKClient` for stateful support sessions.
+- Use `query()` for one-shot extraction and evaluation tasks.
+- Prefer SDK in-process MCP via `create_sdk_mcp_server()` for core runtime tools.
+- Keep external FastMCP servers only for MCP interoperability testing.

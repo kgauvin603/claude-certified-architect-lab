@@ -1,16 +1,27 @@
-from anthropic import Anthropic
 from pydantic import ValidationError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
-
-from .prompts import EXTRACTION_PROMPT
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from claude_agent_sdk import query, ClaudeAgentOptions
 from .schemas import ExtractedInvoice
-
-
-client = Anthropic()
+from .prompts import EXTRACTION_PROMPT
 
 
 class RecoverableValidationError(Exception):
     pass
+
+
+async def _run_extraction(document_text: str) -> str:
+    options = ClaudeAgentOptions(
+        system_prompt=EXTRACTION_PROMPT,
+        permission_mode="bypassPermissions",
+    )
+
+    chunks = []
+    async for message in query(
+        prompt=f"Extract this invoice as JSON only:\n\n{document_text}",
+        options=options,
+    ):
+        chunks.append(str(message))
+    return "\n".join(chunks)
 
 
 @retry(
@@ -18,24 +29,10 @@ class RecoverableValidationError(Exception):
     wait=wait_fixed(1),
     retry=retry_if_exception_type(RecoverableValidationError),
 )
-def extract_invoice_text(document_text: str, model: str = "claude-sonnet-4-5") -> ExtractedInvoice:
-    response = client.messages.create(
-        model=model,
-        max_tokens=1200,
-        system=EXTRACTION_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": f"Extract this invoice:\n\n{document_text}",
-            }
-        ],
-    )
-
-    text = "".join(
-        block.text for block in response.content if getattr(block, "type", "") == "text"
-    )
+async def extract_invoice_text(document_text: str) -> ExtractedInvoice:
+    raw = await _run_extraction(document_text)
 
     try:
-        return ExtractedInvoice.model_validate_json(text)
-    except ValidationError as exc:
-        raise RecoverableValidationError(str(exc)) from exc
+        return ExtractedInvoice.model_validate_json(raw)
+    except ValidationError as e:
+        raise RecoverableValidationError(str(e)) from e
