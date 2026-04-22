@@ -6,7 +6,7 @@ from .sessions import load_session, save_session
 from .prompts import COORDINATOR_SYSTEM, FEW_SHOTS
 from .sdk_tools import SUPPORT_MCP_SERVER
 
-SCRATCHPAD_DIR = Path("data/scratchpads")
+SCRATCHPAD_DIR = Path(__file__).parent.parent.parent / "data" / "scratchpads"
 SCRATCHPAD_DIR.mkdir(parents=True, exist_ok=True)
 
 

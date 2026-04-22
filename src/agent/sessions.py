@@ -3,7 +3,7 @@ from pathlib import Path
 from .schemas import TicketContext
 
 
-SESSION_DIR = Path("data/sessions")
+SESSION_DIR = Path(__file__).parent.parent.parent / "data" / "sessions"
 SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 
