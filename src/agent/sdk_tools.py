@@ -27,100 +27,145 @@ ORDERS = {
 }
 
 
-def sdk_text(payload: dict[str, Any]) -> dict[str, Any]:
-    return {"content": [{"type": "text", "text": str(payload)}]}
+def sdk_text(result: ToolResult) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": result.model_dump_json()}]}
 
 
 @tool(
     "find_customer_by_email",
-    "Exact lookup for a customer when the full email address is known. Do not use for partial names or vague identity.",
+    (
+        "Exact lookup: call ONLY when a complete, syntactically valid email address is provided "
+        "(must contain '@' and a domain). Do NOT call for display names, partial emails, or vague "
+        "identity like 'find Alice'. Use search_customers whenever the full email is not confirmed."
+    ),
     {"email": str},
 )
 async def find_customer_by_email(args: dict[str, Any]) -> dict[str, Any]:
-    email = args["email"]
-    if "@" not in email:
-        result = ToolResult(
+    email = args["email"].strip().lower()
+    parts = email.split("@")
+    if len(parts) != 2 or not parts[0] or not parts[1] or "." not in parts[1]:
+        return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
                 category=ErrorCategory.VALIDATION_ERROR,
-                message="email must be a valid email address",
+                message=f"'{args['email']}' is not a valid email address",
                 retryable=False,
-                suggested_action="Ask the user for a full email address",
+                suggested_action="Ask the user for their full email address, or use search_customers with a name",
             ),
-        )
-        return sdk_text(result.model_dump())
+        ))
 
     customer = CUSTOMERS.get(email)
     if not customer:
-        result = ToolResult(
+        return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
                 category=ErrorCategory.NOT_FOUND,
-                message=f"No customer found for {email}",
+                message=f"No customer found for email '{email}'",
                 retryable=False,
-                suggested_action="Use search_customers if identity is incomplete",
+                suggested_action="Verify the email with the user, or try search_customers with a partial name",
             ),
-        )
-        return sdk_text(result.model_dump())
+        ))
 
-    return sdk_text(ToolResult(ok=True, data=customer).model_dump())
+    return sdk_text(ToolResult(ok=True, data=customer))
 
 
 @tool(
     "search_customers",
-    "Fuzzy search for customers when you only have a partial name, partial email, or ambiguous identity.",
+    (
+        "Fuzzy search: call when identity is ambiguous — partial name, misspelled name, display name "
+        "(e.g. 'Alice'), or incomplete email. Use when the user says 'find', 'look up', or 'search' "
+        "without supplying a verified full email. Do NOT call when a complete email address is already known."
+    ),
     {"query": str},
 )
 async def search_customers(args: dict[str, Any]) -> dict[str, Any]:
-    q = args["query"].lower().strip()
-    results = [v for k, v in CUSTOMERS.items() if q in k.lower() or q in v["name"].lower()]
-    return sdk_text(ToolResult(ok=True, data={"results": results}).model_dump())
+    q = args["query"].strip()
+    if not q:
+        return sdk_text(ToolResult(
+            ok=False,
+            error=ToolError(
+                category=ErrorCategory.VALIDATION_ERROR,
+                message="query must not be empty",
+                retryable=False,
+                suggested_action="Ask the user for a name, partial email, or other identifying information",
+            ),
+        ))
+
+    q_lower = q.lower()
+    results = [v for k, v in CUSTOMERS.items() if q_lower in k or q_lower in v["name"].lower()]
+    return sdk_text(ToolResult(ok=True, data={"results": results, "count": len(results)}))
 
 
 @tool(
     "get_order_by_id",
-    "Exact lookup for an order using a complete order ID in the form ORD-########.",
+    (
+        "Exact lookup: call ONLY when the user provides a complete order ID in the format ORD-######## "
+        "(the prefix 'ORD-' followed by exactly 8 digits, 12 characters total). Do NOT call for "
+        "'recent order', 'last order', date ranges, status queries, or any partial reference. "
+        "Use search_orders for all ambiguous or incomplete order references."
+    ),
     {"order_id": str},
 )
 async def get_order_by_id(args: dict[str, Any]) -> dict[str, Any]:
-    order_id = args["order_id"]
-    if not order_id.startswith("ORD-") or len(order_id) != 12:
-        result = ToolResult(
+    order_id = args["order_id"].strip().upper()
+    suffix = order_id[4:] if order_id.startswith("ORD-") else ""
+    if len(order_id) != 12 or not order_id.startswith("ORD-") or not suffix.isdigit():
+        return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
                 category=ErrorCategory.VALIDATION_ERROR,
-                message="order_id must match ORD-########",
+                message=f"'{args['order_id']}' is not a valid order ID; expected ORD-######## (12 characters)",
                 retryable=False,
-                suggested_action="Ask the user for a valid order ID",
+                suggested_action="Ask the user for a valid order ID, or use search_orders if the ID is uncertain",
             ),
-        )
-        return sdk_text(result.model_dump())
+        ))
 
     order = ORDERS.get(order_id)
     if not order:
-        result = ToolResult(
+        return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
                 category=ErrorCategory.NOT_FOUND,
-                message=f"No order found for {order_id}",
+                message=f"No order found for '{order_id}'",
                 retryable=False,
-                suggested_action="Use search_orders for fuzzy requests",
+                suggested_action="Confirm the order ID with the user, or use search_orders to locate it",
             ),
-        )
-        return sdk_text(result.model_dump())
+        ))
 
-    return sdk_text(ToolResult(ok=True, data=order).model_dump())
+    return sdk_text(ToolResult(ok=True, data=order))
 
 
 @tool(
     "search_orders",
-    "Fuzzy search for orders when the request is ambiguous, such as recent order, last month, or partial identifiers.",
+    (
+        "Fuzzy/range search: call for any order reference that is not a complete ORD-######## ID — "
+        "this includes 'recent order', 'last order', date ranges, delivery status (e.g. 'delivered'), "
+        "customer ID (e.g. CUST-1001), or partial identifiers. "
+        "Do NOT call when the user has already provided a complete, verified ORD-######## order ID."
+    ),
     {"query": str},
 )
 async def search_orders(args: dict[str, Any]) -> dict[str, Any]:
-    q = args["query"].lower().strip()
-    results = [v for _, v in ORDERS.items() if q in v["order_id"].lower() or q in v["status"].lower()]
-    return sdk_text(ToolResult(ok=True, data={"results": results}).model_dump())
+    q = args["query"].strip()
+    if not q:
+        return sdk_text(ToolResult(
+            ok=False,
+            error=ToolError(
+                category=ErrorCategory.VALIDATION_ERROR,
+                message="query must not be empty",
+                retryable=False,
+                suggested_action="Provide a status (e.g. 'delivered'), customer ID, or partial order ID",
+            ),
+        ))
+
+    q_lower = q.lower()
+    results = [
+        v for _, v in ORDERS.items()
+        if q_lower in v["order_id"].lower()
+        or q_lower in v["status"].lower()
+        or q_lower in v.get("customer_id", "").lower()
+    ]
+    return sdk_text(ToolResult(ok=True, data={"results": results, "count": len(results)}))
 
 
 @tool(
@@ -129,35 +174,35 @@ async def search_orders(args: dict[str, Any]) -> dict[str, Any]:
     {"order_id": str},
 )
 async def check_refund_eligibility(args: dict[str, Any]) -> dict[str, Any]:
-    order_id = args["order_id"]
+    order_id = args["order_id"].strip().upper()
     order = ORDERS.get(order_id)
     if not order:
-        result = ToolResult(
+        return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
                 category=ErrorCategory.NOT_FOUND,
-                message=f"No order found for {order_id}",
+                message=f"No order found for '{order_id}'",
                 retryable=False,
+                suggested_action="Use get_order_by_id or search_orders to verify the order ID first",
             ),
-        )
-        return sdk_text(result.model_dump())
+        ))
 
     if order["status"] != "delivered":
         return sdk_text(ToolResult(ok=True, data={
             "eligible": False,
-            "reason": "Order has not been delivered yet."
-        }).model_dump())
+            "reason": "Order has not been delivered yet.",
+        }))
 
     if order["days_since_delivery"] is not None and order["days_since_delivery"] <= 30:
         return sdk_text(ToolResult(ok=True, data={
             "eligible": True,
-            "reason": "Within 30-day refund window."
-        }).model_dump())
+            "reason": "Within 30-day refund window.",
+        }))
 
     return sdk_text(ToolResult(ok=True, data={
         "eligible": False,
-        "reason": "Outside refund window."
-    }).model_dump())
+        "reason": "Outside 30-day refund window.",
+    }))
 
 
 @tool(
@@ -170,7 +215,7 @@ async def escalate_case(args: dict[str, Any]) -> dict[str, Any]:
         "escalated": True,
         "queue": "billing-support",
         "summary": args["summary"],
-    }).model_dump())
+    }))
 
 
 SUPPORT_MCP_SERVER = create_sdk_mcp_server(
