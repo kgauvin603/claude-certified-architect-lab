@@ -3,9 +3,20 @@ import os
 from fastapi import FastAPI
 from pydantic import BaseModel
 from src.agent.coordinator import process_request
+from src.agent.observability import (
+    configure_logging,
+    new_request_id,
+    set_request_context,
+    reset_request_context,
+    log_request_received,
+    log_response_sent,
+    get_trace,
+)
 
 if not os.environ.get("ANTHROPIC_API_KEY"):
     raise RuntimeError("ANTHROPIC_API_KEY environment variable is required")
+
+configure_logging()
 
 app = FastAPI()
 
@@ -23,4 +34,13 @@ async def healthz():
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    return await process_request(req.session_id, req.user_id, req.request_text)
+    request_id = new_request_id()
+    t1, t2 = set_request_context(request_id)
+    try:
+        log_request_received(req.user_id, req.session_id, req.request_text)
+        result = await process_request(req.session_id, req.user_id, req.request_text)
+        log_response_sent(req.session_id)
+        result["trace"] = get_trace()
+        return result
+    finally:
+        reset_request_context(t1, t2)

@@ -1,6 +1,7 @@
 from typing import Any
 from claude_agent_sdk import tool, create_sdk_mcp_server
 from .errors import ToolResult, ToolError, ErrorCategory
+from .observability import log_tool_call
 
 CUSTOMERS = {
     "alice@example.com": {"customer_id": "CUST-1001", "name": "Alice Example"},
@@ -44,6 +45,7 @@ async def find_customer_by_email(args: dict[str, Any]) -> dict[str, Any]:
     email = args["email"].strip().lower()
     parts = email.split("@")
     if len(parts) != 2 or not parts[0] or not parts[1] or "." not in parts[1]:
+        log_tool_call("find_customer_by_email", f"email={email!r}", "error: invalid email format")
         return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
@@ -56,6 +58,7 @@ async def find_customer_by_email(args: dict[str, Any]) -> dict[str, Any]:
 
     customer = CUSTOMERS.get(email)
     if not customer:
+        log_tool_call("find_customer_by_email", f"email={email!r}", "error: not found")
         return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
@@ -66,6 +69,7 @@ async def find_customer_by_email(args: dict[str, Any]) -> dict[str, Any]:
             ),
         ))
 
+    log_tool_call("find_customer_by_email", f"email={email!r}", f"found customer_id={customer['customer_id']}")
     return sdk_text(ToolResult(ok=True, data=customer))
 
 
@@ -81,6 +85,7 @@ async def find_customer_by_email(args: dict[str, Any]) -> dict[str, Any]:
 async def search_customers(args: dict[str, Any]) -> dict[str, Any]:
     q = args["query"].strip()
     if not q:
+        log_tool_call("search_customers", "query=''", "error: empty query")
         return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
@@ -93,6 +98,7 @@ async def search_customers(args: dict[str, Any]) -> dict[str, Any]:
 
     q_lower = q.lower()
     results = [v for k, v in CUSTOMERS.items() if q_lower in k or q_lower in v["name"].lower()]
+    log_tool_call("search_customers", f"query={q!r}", f"{len(results)} results")
     return sdk_text(ToolResult(ok=True, data={"results": results, "count": len(results)}))
 
 
@@ -110,6 +116,7 @@ async def get_order_by_id(args: dict[str, Any]) -> dict[str, Any]:
     order_id = args["order_id"].strip().upper()
     suffix = order_id[4:] if order_id.startswith("ORD-") else ""
     if len(order_id) != 12 or not order_id.startswith("ORD-") or not suffix.isdigit():
+        log_tool_call("get_order_by_id", f"order_id={order_id!r}", "error: invalid format")
         return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
@@ -122,6 +129,7 @@ async def get_order_by_id(args: dict[str, Any]) -> dict[str, Any]:
 
     order = ORDERS.get(order_id)
     if not order:
+        log_tool_call("get_order_by_id", f"order_id={order_id!r}", "error: not found")
         return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
@@ -132,6 +140,7 @@ async def get_order_by_id(args: dict[str, Any]) -> dict[str, Any]:
             ),
         ))
 
+    log_tool_call("get_order_by_id", f"order_id={order_id!r}", f"found status={order['status']} amount={order['amount']}")
     return sdk_text(ToolResult(ok=True, data=order))
 
 
@@ -148,6 +157,7 @@ async def get_order_by_id(args: dict[str, Any]) -> dict[str, Any]:
 async def search_orders(args: dict[str, Any]) -> dict[str, Any]:
     q = args["query"].strip()
     if not q:
+        log_tool_call("search_orders", "query=''", "error: empty query")
         return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
@@ -165,6 +175,7 @@ async def search_orders(args: dict[str, Any]) -> dict[str, Any]:
         or q_lower in v["status"].lower()
         or q_lower in v.get("customer_id", "").lower()
     ]
+    log_tool_call("search_orders", f"query={q!r}", f"{len(results)} results")
     return sdk_text(ToolResult(ok=True, data={"results": results, "count": len(results)}))
 
 
@@ -177,6 +188,7 @@ async def check_refund_eligibility(args: dict[str, Any]) -> dict[str, Any]:
     order_id = args["order_id"].strip().upper()
     order = ORDERS.get(order_id)
     if not order:
+        log_tool_call("check_refund_eligibility", f"order_id={order_id!r}", "error: not found")
         return sdk_text(ToolResult(
             ok=False,
             error=ToolError(
@@ -188,17 +200,20 @@ async def check_refund_eligibility(args: dict[str, Any]) -> dict[str, Any]:
         ))
 
     if order["status"] != "delivered":
+        log_tool_call("check_refund_eligibility", f"order_id={order_id!r}", "eligible=False (not delivered)")
         return sdk_text(ToolResult(ok=True, data={
             "eligible": False,
             "reason": "Order has not been delivered yet.",
         }))
 
     if order["days_since_delivery"] is not None and order["days_since_delivery"] <= 30:
+        log_tool_call("check_refund_eligibility", f"order_id={order_id!r}", "eligible=True (within 30-day window)")
         return sdk_text(ToolResult(ok=True, data={
             "eligible": True,
             "reason": "Within 30-day refund window.",
         }))
 
+    log_tool_call("check_refund_eligibility", f"order_id={order_id!r}", "eligible=False (outside 30-day window)")
     return sdk_text(ToolResult(ok=True, data={
         "eligible": False,
         "reason": "Outside 30-day refund window.",
@@ -211,10 +226,12 @@ async def check_refund_eligibility(args: dict[str, Any]) -> dict[str, Any]:
     {"summary": str},
 )
 async def escalate_case(args: dict[str, Any]) -> dict[str, Any]:
+    summary = args["summary"]
+    log_tool_call("escalate_case", f"summary={summary[:60]!r}", "escalated to billing-support")
     return sdk_text(ToolResult(ok=True, data={
         "escalated": True,
         "queue": "billing-support",
-        "summary": args["summary"],
+        "summary": summary,
     }))
 
 
