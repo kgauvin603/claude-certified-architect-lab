@@ -12,6 +12,13 @@ from .schemas import (
 )
 from .sessions import load_session, save_session
 from .subagents import run_researcher, run_validator
+from .observability import (
+    log_researcher_start,
+    log_researcher_result,
+    log_validator_start,
+    log_validator_result,
+    log_decision,
+)
 
 SCRATCHPAD_DIR = Path(__file__).parent.parent.parent / "data" / "scratchpads"
 SCRATCHPAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -109,6 +116,7 @@ async def process_request(session_id: str, user_id: str, request_text: str) -> d
     )
     ctx.request_text = request_text
 
+    log_researcher_start()
     research_result = await run_researcher(ResearchRequest(
         user_id=user_id,
         request_text=request_text,
@@ -122,6 +130,7 @@ async def process_request(session_id: str, user_id: str, request_text: str) -> d
         ctx.tool_failure_counts[tool_key] = ctx.tool_failure_counts.get(tool_key, 0) + 1
 
         if error.get("retryable") and ctx.tool_failure_counts[tool_key] < _MAX_TOOL_FAILURES:
+            log_researcher_start()
             research_result = await run_researcher(ResearchRequest(
                 user_id=user_id,
                 request_text=request_text,
@@ -130,18 +139,34 @@ async def process_request(session_id: str, user_id: str, request_text: str) -> d
             if not research_result.ok:
                 ctx.tool_failure_counts[tool_key] += 1
 
+    log_researcher_result(
+        ok=research_result.ok,
+        fact_count=len(research_result.facts),
+        error_msg=(research_result.error or {}).get("message", "") if not research_result.ok else "",
+    )
+
     validation_result = None
     if research_result.ok and research_result.facts:
+        log_validator_start(len(research_result.facts))
         validation_result = await run_validator(ValidationRequest(
             request_text=request_text,
             facts=research_result.facts,
         ))
+        log_validator_result(
+            valid=validation_result.valid,
+            inconsistency_count=len(validation_result.inconsistencies),
+        )
 
     if research_result.ok:
         ctx.facts.extend(f"{f.key}={f.value}" for f in research_result.facts)
     ctx.facts.append(f"Last request: {request_text}")
 
     decision = decide(ctx, research_result, validation_result)
+    log_decision(
+        outcome=decision.outcome,
+        confidence=decision.confidence,
+        escalation_reason=decision.escalation_reason,
+    )
 
     write_scratchpad(
         session_id,
