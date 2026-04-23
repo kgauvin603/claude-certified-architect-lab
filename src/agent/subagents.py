@@ -1,6 +1,7 @@
 import json
 from pydantic import ValidationError
 from claude_agent_sdk import query, ClaudeAgentOptions
+from claude_agent_sdk.types import ResultMessage
 from .errors import ToolError, ErrorCategory
 from .schemas import (
     ResearchRequest,
@@ -10,6 +11,16 @@ from .schemas import (
 )
 from .prompts import RESEARCHER_SYSTEM, VALIDATOR_SYSTEM
 from .sdk_tools import SUPPORT_MCP_SERVER
+
+import re as _re
+
+def _extract_json(text: str) -> str:
+    """Strip markdown code fences and return the first JSON object/array."""
+    # Remove ```json ... ``` or ``` ... ``` wrappers
+    stripped = _re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=_re.IGNORECASE)
+    stripped = _re.sub(r"\s*```$", "", stripped.strip())
+    return stripped.strip()
+
 
 _RESEARCHER_TOOLS = [
     "mcp__support__find_customer_by_email",
@@ -33,10 +44,11 @@ async def run_researcher(request: ResearchRequest) -> ResearchResult:
         f"Known facts: {json.dumps(request.known_facts)}\n\n"
         "Retrieve all relevant facts. Return only structured JSON."
     )
-    chunks: list[str] = []
+    raw = ""
     async for message in query(prompt=prompt, options=options):
-        chunks.append(str(message))
-    raw = "\n".join(chunks)
+        if isinstance(message, ResultMessage):
+            raw = _extract_json(message.result or "")
+            break
     try:
         return ResearchResult.model_validate_json(raw)
     except ValidationError:
@@ -61,10 +73,11 @@ async def run_validator(request: ValidationRequest) -> ValidationResult:
         f"Facts: {json.dumps(facts_payload)}\n\n"
         "Detect any inconsistencies. Return only structured JSON."
     )
-    chunks: list[str] = []
+    raw = ""
     async for message in query(prompt=prompt, options=options):
-        chunks.append(str(message))
-    raw = "\n".join(chunks)
+        if isinstance(message, ResultMessage):
+            raw = _extract_json(message.result or "")
+            break
     try:
         return ValidationResult.model_validate_json(raw)
     except ValidationError:

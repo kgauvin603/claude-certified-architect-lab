@@ -3,6 +3,7 @@ import json
 from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
+from claude_agent_sdk.types import ResultMessage
 
 from src.agent.schemas import (
     FactItem,
@@ -16,10 +17,22 @@ from src.agent.errors import ErrorCategory, ToolError
 from src.agent.subagents import run_researcher, run_validator
 
 
+def _make_result(text: str) -> ResultMessage:
+    return ResultMessage(
+        subtype="success",
+        duration_ms=0,
+        duration_api_ms=0,
+        is_error=False,
+        num_turns=1,
+        session_id="test-session",
+        result=text,
+    )
+
+
 def _async_gen(items: list[str]):
     async def _gen():
         for item in items:
-            yield item
+            yield _make_result(item)
     return _gen()
 
 
