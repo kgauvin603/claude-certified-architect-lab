@@ -39,8 +39,12 @@ async def chat(req: ChatRequest):
     try:
         log_request_received(req.user_id, req.session_id, req.request_text)
         result = await process_request(req.session_id, req.user_id, req.request_text)
+        result = result if isinstance(result, dict) else {"result": str(result)}
         log_response_sent(req.session_id)
-        result["trace"] = get_trace()
+        try:
+            result["trace"] = get_trace()
+        except Exception:
+            pass
         return result
     finally:
         reset_request_context(t1, t2)
