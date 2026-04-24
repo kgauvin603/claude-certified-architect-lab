@@ -13,6 +13,7 @@ from .schemas import (
 from .sessions import load_session, save_session
 from .subagents import run_researcher, run_validator
 from .observability import (
+    log_orchestrator_plan,
     log_researcher_start,
     log_researcher_result,
     log_validator_start,
@@ -115,6 +116,7 @@ async def process_request(session_id: str, user_id: str, request_text: str) -> d
         request_text=request_text,
     )
     ctx.request_text = request_text
+    log_orchestrator_plan("Researcher → Validator → decide")
 
     log_researcher_start()
     research_result = await run_researcher(ResearchRequest(

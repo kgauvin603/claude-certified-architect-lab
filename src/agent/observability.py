@@ -36,6 +36,10 @@ def new_request_id() -> str:
     return uuid.uuid4().hex[:8].upper()
 
 
+def get_request_id() -> str:
+    return _request_id_var.get() or ""
+
+
 def set_request_context(request_id: str) -> tuple:
     trace: list[str] = []
     t1 = _request_id_var.set(request_id)
@@ -57,9 +61,26 @@ def _record(event: str) -> None:
     t = _trace_var.get()
     if t is not None:
         t.append(event)
+    rid = _request_id_var.get()
+    if rid:
+        try:
+            from .trace_store import add_event
+            add_event(rid, event)
+        except Exception:
+            pass
 
 
 # --- Named event loggers ---
+
+def log_orchestrator_start(user_id: str, session_id: str) -> None:
+    logger.info("ORCHESTRATOR_START user=%s session=%s", user_id, session_id)
+    _record(f"Orchestrator: started (user={user_id}, session={session_id})")
+
+
+def log_orchestrator_plan(plan: str) -> None:
+    logger.info("ORCHESTRATOR_PLAN %s", plan)
+    _record(f"Orchestrator: plan → {plan}")
+
 
 def log_request_received(user_id: str, session_id: str, request_text: str) -> None:
     logger.info('REQUEST_RECEIVED user=%s session=%s input="%s"', user_id, session_id, request_text)
