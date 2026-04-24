@@ -111,3 +111,21 @@ sleep 3
 check_deploy
 
 ENV_FILE=/etc/claude-certified-architect-lab/claude-certified-architect-lab.env
+
+
+# Fix Claude SDK runtime requirements
+mkdir -p /home/claudeapp
+chown claudeapp:claudeapp /home/claudeapp
+chmod 750 /home/claudeapp
+
+if ! grep -q "HOME=/home/claudeapp" /etc/claude-certified-architect-lab/claude-certified-architect-lab.env; then
+  echo "HOME=/home/claudeapp" >> /etc/claude-certified-architect-lab/claude-certified-architect-lab.env
+fi
+
+if [ -f /home/opc/.claude.json ]; then
+  cp /home/opc/.claude.json /home/claudeapp/.claude.json
+  chown claudeapp:claudeapp /home/claudeapp/.claude.json
+  chmod 600 /home/claudeapp/.claude.json
+fi
+
+chown -R claudeapp:claudeapp /opt/claude-certified-architect-lab/data || true
