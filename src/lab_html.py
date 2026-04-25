@@ -63,6 +63,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .fact-list li { padding: 0.2rem 0; border-top: 1px solid var(--border); }
 .fact-list li:first-child { border-top: none; }
 .fact-src { font-size: 0.68rem; color: var(--dim); }
+.session-note { font-size: 0.68rem; color: var(--dim); margin-top: 0.35rem; line-height: 1.45; }
 details summary { font-size: 0.75rem; color: var(--dim); cursor: pointer; margin-top: 0.5rem; }
 pre { font-size: 0.7rem; white-space: pre-wrap; word-break: break-word; max-height: 250px; overflow-y: auto; margin-top: 0.5rem; background: var(--bg); padding: 0.75rem; border-radius: 4px; }
 .concept { margin-bottom: 0.75rem; }
@@ -92,11 +93,12 @@ hr { border: none; border-top: 1px solid var(--border); margin: 0.75rem 0; }
       <input id="userId" value="user-001">
       <label>Session ID</label>
       <input id="sessionId" value="session-001">
+      <p class="session-note">Sample buttons auto-generate a fresh session ID to prevent cross-scenario contamination. Edit the field above to intentionally resume a prior session.</p>
       <label>Request Text</label>
       <textarea id="reqText" placeholder="Describe your support request&hellip;"></textarea>
       <div class="scenarios">
-        <p>Quick scenarios:</p>
-        <button type="button" class="sbtn" data-txt="I need to refund my most recent order">Refund recent order</button>
+        <p>Quick scenarios (each runs in an isolated session):</p>
+        <button type="button" class="sbtn" data-uid="alice@example.com" data-txt="I need to refund my most recent order">Refund recent order</button>
         <button type="button" class="sbtn" data-txt="Look up account for John">Look up John&rsquo;s account</button>
         <button type="button" class="sbtn" data-txt="Get details for order ORD-00000001">Get order ORD-00000001</button>
         <button type="button" class="sbtn" data-txt="Extract invoice data: Invoice #INV-2024-001, Vendor: ACME Corp, Amount Due: $1500.00, Date: 2024-01-15, Currency: USD">Extract invoice data</button>
@@ -163,9 +165,17 @@ function connectSSE() {
 }
 connectSSE();
 
+function freshSessionId() {
+  return 'sample-' + Math.random().toString(36).slice(2, 10);
+}
+
 document.querySelectorAll('.sbtn').forEach(function(b) {
   b.addEventListener('click', function() {
     document.getElementById('reqText').value = b.dataset.txt;
+    document.getElementById('sessionId').value = freshSessionId();
+    if (b.dataset.uid) {
+      document.getElementById('userId').value = b.dataset.uid;
+    }
   });
 });
 
@@ -187,6 +197,8 @@ function setStep(id, state, detail) {
 
 function updateTimeline(ev) {
   var e = ev.toLowerCase();
+  if (e.indexOf('session: loaded') !== -1) { setStep('s1','active', ev.replace('Session: ','Session ')); }
+  if (e.indexOf('session: carried facts') !== -1) { setStep('s1','active', ev.replace('Session: carried facts → ','')); }
   if (e.indexOf('orchestrator: started') !== -1) { setStep('s1','active','Planning…'); }
   if (e.indexOf('orchestrator: plan') !== -1) { setStep('s1','active', ev.replace('Orchestrator: plan → ','')); }
   if (e.indexOf('researcher: started') !== -1) { setStep('s1','done','Plan dispatched'); setStep('s2','active','Running…'); }
@@ -200,6 +212,8 @@ function updateTimeline(ev) {
   if (e.indexOf('validator: started') !== -1) { setStep('s4','active','Checking…'); }
   if (e.indexOf('validator: valid') !== -1 && e.indexOf('invalid') === -1) { setStep('s4','done','Consistent'); }
   if (e.indexOf('validator: invalid') !== -1) { setStep('s4','fail',ev); }
+  if (e.indexOf('failures this request:') !== -1) { setStep('s5','active', ev); }
+  if (e.indexOf('decision reason:') !== -1) { setStep('s5','active', ev.replace('Decision reason: ','')); }
   if (e.indexOf('decision:') !== -1) { setStep('s5','done',ev); }
   if (e.indexOf('response sent') !== -1) { setStep('s6','done','Complete'); }
 }

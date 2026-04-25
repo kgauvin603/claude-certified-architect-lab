@@ -19,6 +19,10 @@ from .observability import (
     log_validator_start,
     log_validator_result,
     log_decision,
+    log_session_loaded,
+    log_session_facts_summary,
+    log_current_request_failures,
+    log_decision_reason,
 )
 
 SCRATCHPAD_DIR = Path(__file__).parent.parent.parent / "data" / "scratchpads"
@@ -116,6 +120,15 @@ async def process_request(session_id: str, user_id: str, request_text: str) -> d
         request_text=request_text,
     )
     ctx.request_text = request_text
+
+    log_session_loaded(session_id, len(ctx.facts))
+    if ctx.facts:
+        log_session_facts_summary(ctx.facts[-_MAX_CARRIED_FACTS:])
+
+    # Failure counts are per-request: reset so historical session failures
+    # from unrelated prior requests don't trigger spurious escalation.
+    ctx.tool_failure_counts = {}
+
     log_orchestrator_plan("Researcher → Validator → decide")
 
     log_researcher_start()
@@ -168,6 +181,13 @@ async def process_request(session_id: str, user_id: str, request_text: str) -> d
         outcome=decision.outcome,
         confidence=decision.confidence,
         escalation_reason=decision.escalation_reason,
+    )
+    log_current_request_failures(dict(ctx.tool_failure_counts))
+    log_decision_reason(
+        outcome=decision.outcome,
+        confidence=str(decision.confidence),
+        reason=str(decision.escalation_reason) if decision.escalation_reason else None,
+        failures=dict(ctx.tool_failure_counts),
     )
 
     write_scratchpad(

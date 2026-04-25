@@ -134,3 +134,30 @@ def log_decision(outcome: str, confidence: str, escalation_reason: Optional[str]
 def log_response_sent(session_id: str) -> None:
     logger.info("RESPONSE_SENT session=%s", session_id)
     _record("Response sent")
+
+
+def log_session_loaded(session_id: str, existing_fact_count: int) -> None:
+    logger.info("SESSION_LOADED session=%s existing_facts=%d", session_id, existing_fact_count)
+    _record(f"Session: loaded (session={session_id}, existing_facts={existing_fact_count})")
+
+
+def log_session_facts_summary(carried_facts: list[str]) -> None:
+    summary = "; ".join(f[:50] for f in carried_facts)
+    logger.info("SESSION_FACTS_SUMMARY %s", summary)
+    _record(f"Session: carried facts → {summary}")
+
+
+def log_current_request_failures(failures: dict) -> None:
+    logger.info("CURRENT_REQUEST_FAILURES %s", failures)
+    _record(f"Failures this request: {failures or 'none'}")
+
+
+def log_decision_reason(
+    outcome: str,
+    confidence: str,
+    reason: Optional[str],
+    failures: dict,
+) -> None:
+    detail = f"failures={failures}" if failures else "no failures this request"
+    logger.info("DECISION_REASON outcome=%s confidence=%s reason=%s %s", outcome, confidence, reason, detail)
+    _record(f"Decision reason: {outcome} (confidence={confidence}, {detail})")
